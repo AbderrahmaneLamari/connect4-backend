@@ -3,6 +3,11 @@ from pydantic import BaseModel
 import numpy as np
 import random
 import math
+import subprocess
+
+import tempfile
+import os
+from pathlib import Path
 
 app = FastAPI()
 
@@ -21,6 +26,8 @@ board = np.zeros((ROW_COUNT, COLUMN_COUNT))
 class Move(BaseModel):
     column: int
 
+class CodeExecutionRequest(BaseModel):
+    code: str
 
 def create_board():
     return np.zeros((ROW_COUNT, COLUMN_COUNT))
@@ -214,10 +221,70 @@ def player_move(move: Move):
     }
 
 @app.post("/execute-code")
-def execute_code(req):
-    code = req.get("code")
-    res = exec(code)
-    return {"message": "Code executed successfully", "result": res}
+def execute_code(req: CodeExecutionRequest):
+    code = req.code
+    
+    # Validate input
+    if not code.strip():
+        raise HTTPException(status_code=400, detail="No code provided")
+    
+    # Basic security check - prevent some dangerous operations
+    dangerous_keywords = ['import os', 'import subprocess', 'import sys', '__import__', 'eval', 'exec']
+    if any(keyword in code.lower() for keyword in dangerous_keywords):
+        raise HTTPException(status_code=400, detail="Code contains potentially dangerous operations")
+    
+    try:
+        # Create a temporary file to store the code
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as temp_file:
+            temp_file.write(code)
+            temp_file_path = temp_file.name
+        
+        # Execute the Python file safely
+        result = subprocess.run(
+            ['python3', temp_file_path],
+            capture_output=True,
+            text=True,
+            timeout=10,  # Short timeout for Render
+            cwd=tempfile.gettempdir()
+        )
+        
+        # Clean up the temporary file
+        os.unlink(temp_file_path)
+        
+        if result.returncode == 0:
+            return {
+                "message": "Code executed successfully", 
+                "result": result.stdout,
+                "stderr": result.stderr if result.stderr else None,
+                "success": True
+            }
+        else:
+            return {
+                "message": "Code execution failed",
+                "error": result.stderr or "Unknown error",
+                "stdout": result.stdout if result.stdout else None,
+                "success": False
+            }
+            
+    except subprocess.TimeoutExpired:
+        # Clean up if timeout occurs
+        if 'temp_file_path' in locals():
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+        raise HTTPException(status_code=408, detail="Code execution timed out")
+        
+    except Exception as e:
+        # Clean up if any other error occurs
+        if 'temp_file_path' in locals():
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+        raise HTTPException(status_code=500, detail=f"Execution error: {str(e)}")
+
+
 @app.get("/ai_move")
 def ai_move():
     global board
