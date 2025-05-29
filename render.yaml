@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: connect4-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn connect4_api:app --host 0.0.0.0 --port 10000
